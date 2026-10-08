@@ -1,0 +1,1493 @@
+<!DOCTYPE html>
+<!--
+  DISASTER COVER DESK · natural-catastrophe property insurance · HTML + JS only
+  Page styling comes from customer.css (pf-* classes). Charts are SVG drawn by JS
+  (colours are SVG attributes, no CSS).
+
+  Pages
+    1. Dashboard      KPIs, 4 charts (exposure by region, claims by peril,
+                      claims by status, premium vs claims), policyholder list,
+                      peril filter and search
+    2. Policyholder   per-policyholder flow: details, insured properties, claims,
+                      claims by damage level + by status, approve / reject
+    3. New entry      add a Policy (property + perils, premium calculated from
+                      regional risk) or a Claim (with deductible + estimated payout)
+
+  Data: fictional demo data generated on first load and saved in this browser
+  (localStorage). "Reset demo data" on the dashboard restores it.
+  Replace the `store` functions with real services when you connect a back end.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Disaster Cover Desk</title>
+  <link rel="stylesheet" href="customer.css">
+</head>
+<body>
+<div class="pf-portal">
+  <div class="pf-column">
+
+    <header class="pf-header">
+      <img class="pf-logo" src="assets/logo.png" alt="Company logo">
+      <div class="pf-badge-slot"></div>
+    </header>
+    <div class="pf-title-band">Disaster Cover Desk</div>
+    <div class="pf-section-band" id="section-band"><span id="section-text"></span></div>
+
+    <main id="content"></main>
+
+    <footer class="pf-footer">
+      <div class="pf-footer__rules"></div>
+      <p class="pf-footer__service">Demo application with fictional data. For support, write to
+        <a class="pf-footer__email" href="mailto:support@example.com">support@example.com</a>.</p>
+      <div class="pf-footer__stack">
+        <div class="pf-footer__copyright">© Disaster Cover Desk - all rights reserved.</div>
+        <div class="pf-footer__version">Version: 1.0.0</div>
+      </div>
+    </footer>
+
+  </div>
+</div>
+
+<!-- ===================== PAGE 1 · DASHBOARD ===================== -->
+<template id="tpl-dashboard">
+  <div data-slot="banner"></div>
+
+  <div class="pf-filter">
+    <span>Peril:</span>
+    <a href="#" class="pf-filter__link pf-filter__link--active" data-peril="All">All</a>
+    <a href="#" class="pf-filter__link" data-peril="Earthquake">Earthquake</a>
+    <a href="#" class="pf-filter__link" data-peril="Hurricane">Hurricane</a>
+    <a href="#" class="pf-filter__link" data-peril="Flood">Flood</a>
+    <a href="#" class="pf-filter__link" data-peril="Wildfire">Wildfire</a>
+  </div>
+
+  <p class="pf-table-title">Key figures</p>
+  <div class="pf-table-wrap">
+    <table class="pf-table">
+      <thead><tr>
+        <th>Policies</th><th>Active</th><th>Active premium</th><th>Sum insured</th>
+        <th>Claims</th><th>Open claims</th><th>Payout approved</th><th>Loss ratio</th>
+      </tr></thead>
+      <tbody data-slot="kpis"></tbody>
+    </table>
+  </div>
+
+  <div data-slot="charts-1"></div>
+  <div data-slot="charts-2"></div>
+  <hr class="pf-rule">
+
+  <p class="pf-table-title">Policyholders</p>
+  <div class="pf-row">
+    <label class="pf-row__label" for="search">Search name or region:</label>
+    <input class="pf-input" id="search" type="text" autocomplete="off">
+  </div>
+  <div class="pf-table-wrap">
+    <table class="pf-table">
+      <thead><tr>
+        <th>Policyholder</th><th>Properties</th><th>Regions</th><th>Sum insured</th>
+        <th>Annual premium</th><th>Claims</th><th>Open claims</th><th>Status</th>
+      </tr></thead>
+      <tbody data-slot="holders"></tbody>
+    </table>
+  </div>
+  <p class="pf-helper">Select a policyholder name to open their properties and claims.</p>
+  <div class="pf-btn-row">
+    <button type="button" class="pf-btn pf-btn--secondary" id="reset-data">Reset demo data</button>
+    <button type="button" class="pf-btn pf-btn--primary" id="new-entry">New entry</button>
+  </div>
+  <hr class="pf-rule">
+</template>
+
+<!-- ===================== PAGE 2 · POLICYHOLDER ===================== -->
+<template id="tpl-holder">
+  <div data-slot="banner"></div>
+  <p class="pf-table-title">Policyholder details</p>
+  <div data-slot="details"></div>
+  <hr class="pf-rule">
+
+  <div data-slot="charts"></div>
+
+  <p class="pf-table-title">Insured properties</p>
+  <div class="pf-table-wrap">
+    <table class="pf-table">
+      <thead><tr>
+        <th>Policy</th><th>Property</th><th>Region</th><th>Perils covered</th>
+        <th>Sum insured</th><th>Premium</th><th>Start</th><th>End</th><th>Status</th>
+      </tr></thead>
+      <tbody data-slot="policies"></tbody>
+    </table>
+  </div>
+
+  <p class="pf-table-title">Claims</p>
+  <div class="pf-table-wrap">
+    <table class="pf-table">
+      <thead><tr>
+        <th>Claim</th><th>Policy</th><th>Date</th><th>Peril</th><th>Damage</th>
+        <th>Claimed</th><th>Est. payout</th><th>Status</th><th>Action</th>
+      </tr></thead>
+      <tbody data-slot="claims"></tbody>
+    </table>
+  </div>
+
+  <div class="pf-btn-row">
+    <button type="button" class="pf-btn pf-btn--secondary" id="back">Dashboard</button>
+    <button type="button" class="pf-btn pf-btn--primary" id="new-entry">New entry</button>
+  </div>
+  <hr class="pf-rule">
+</template>
+
+<!-- ===================== PAGE 3 · NEW ENTRY ===================== -->
+<template id="tpl-new">
+  <div data-slot="banner"></div>
+  <p class="pf-instruction">Choose what you want to add, complete the fields and select Save.</p>
+  <div class="pf-radio">
+    <input type="radio" name="entry-type" id="type-policy" value="policy" checked>
+    <label for="type-policy">New policy (property)</label>
+  </div>
+  <div class="pf-radio">
+    <input type="radio" name="entry-type" id="type-claim" value="claim">
+    <label for="type-claim">New claim</label>
+  </div>
+  <hr class="pf-rule">
+  <div data-slot="form"></div>
+  <div data-slot="field-msg"></div>
+  <hr class="pf-rule">
+  <div class="pf-btn-row">
+    <button type="button" class="pf-btn pf-btn--secondary" id="cancel">Cancel</button>
+    <button type="button" class="pf-btn pf-btn--primary" id="save">Save</button>
+  </div>
+  <hr class="pf-rule">
+</template>
+
+<template id="tpl-form-policy">
+  <p class="pf-table-title">Policyholder</p>
+  <div class="pf-row">
+    <label class="pf-row__label" for="np-holder">Policyholder:</label>
+    <select class="pf-select pf-select--wide" id="np-holder"></select>
+  </div>
+  <div class="pf-row">
+    <label class="pf-row__label" for="np-name">Full name:</label>
+    <input class="pf-input" id="np-name" type="text" maxlength="80">
+  </div>
+  <div class="pf-row">
+    <label class="pf-row__label" for="np-phone">Phone:</label>
+    <input class="pf-input" id="np-phone" type="tel" maxlength="10" inputmode="numeric">
+  </div>
+  <div class="pf-row">
+    <label class="pf-row__label" for="np-email">Email:</label>
+    <input class="pf-input" id="np-email" type="email" maxlength="80">
+  </div>
+  <p class="pf-helper">Policyholder fields are only needed when "New policyholder" is selected.</p>
+  <hr class="pf-rule">
+
+  <p class="pf-table-title">Property and cover</p>
+  <div class="pf-row">
+    <label class="pf-row__label" for="np-type">Property type:</label>
+    <select class="pf-select" id="np-type"></select>
+  </div>
+  <div class="pf-row">
+    <label class="pf-row__label" for="np-region">Region (state):</label>
+    <select class="pf-select" id="np-region"></select>
+  </div>
+  <div class="pf-row">
+    <label class="pf-row__label" for="np-address">Address:</label>
+    <input class="pf-input pf-input--uuid" id="np-address" type="text" maxlength="120">
+  </div>
+  <div class="pf-row">
+    <label class="pf-row__label" for="np-value">Sum insured (MXN):</label>
+    <input class="pf-input" id="np-value" type="text" inputmode="numeric" maxlength="9">
+  </div>
+  <div class="pf-row">
+    <span class="pf-row__label">Perils covered:</span>
+    <span data-slot="perils"></span>
+  </div>
+  <div class="pf-row">
+    <label class="pf-row__label" for="np-start">Start date:</label>
+    <input class="pf-input pf-input--date" id="np-start" type="text" maxlength="10">
+  </div>
+  <p class="pf-helper">Start date dd/mm/yyyy. Policies run for one year. The premium depends on the region's risk for each peril.</p>
+  <div class="pf-data-row">
+    <span class="pf-data-row__label">Regional risk:</span>
+    <span data-slot="risk">—</span>
+  </div>
+  <div class="pf-data-row">
+    <span class="pf-data-row__label">Calculated annual premium:</span>
+    <span data-slot="premium">—</span>
+  </div>
+</template>
+
+<template id="tpl-form-claim">
+  <div class="pf-row">
+    <label class="pf-row__label" for="nc-policy">Policy:</label>
+    <select class="pf-select pf-select--wide" id="nc-policy"></select>
+  </div>
+  <p class="pf-helper">Only active policies can receive a new claim.</p>
+  <div class="pf-row">
+    <label class="pf-row__label" for="nc-peril">Peril:</label>
+    <select class="pf-select" id="nc-peril"></select>
+  </div>
+  <div class="pf-row">
+    <label class="pf-row__label" for="nc-date">Date of event:</label>
+    <input class="pf-input pf-input--date" id="nc-date" type="text" maxlength="10">
+  </div>
+  <div class="pf-row">
+    <label class="pf-row__label" for="nc-damage">Damage level:</label>
+    <select class="pf-select" id="nc-damage"></select>
+  </div>
+  <div class="pf-row">
+    <label class="pf-row__label" for="nc-amount">Amount claimed (MXN):</label>
+    <input class="pf-input" id="nc-amount" type="text" inputmode="numeric" maxlength="9">
+  </div>
+  <div class="pf-row">
+    <label class="pf-row__label" for="nc-desc">Description:</label>
+    <input class="pf-input pf-input--uuid" id="nc-desc" type="text" maxlength="120">
+  </div>
+  <div class="pf-data-row">
+    <span class="pf-data-row__label">Deductible:</span>
+    <span data-slot="deductible">—</span>
+  </div>
+  <div class="pf-data-row">
+    <span class="pf-data-row__label">Estimated payout:</span>
+    <span data-slot="payout">—</span>
+  </div>
+  <p class="pf-helper">Only perils covered by the selected policy are listed. The amount cannot exceed the sum insured. New claims start as "Open".</p>
+</template>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ===================================================================
+     REFERENCE DATA
+     =================================================================== */
+  var PERILS = ['Earthquake', 'Hurricane', 'Flood', 'Wildfire'];
+  var BASE_RATE = { Earthquake: 0.0045, Hurricane: 0.004, Flood: 0.003, Wildfire: 0.002 };
+  var DEDUCTIBLE = { Earthquake: 0.05, Hurricane: 0.03, Flood: 0.02, Wildfire: 0.02 };  // % of sum insured
+  // regional risk multipliers per peril (1 = average)
+  var REGIONS = {
+    'Guerrero':            { Earthquake: 2.2, Hurricane: 1.8, Flood: 1.3, Wildfire: 0.8 },
+    'Oaxaca':              { Earthquake: 2.0, Hurricane: 1.4, Flood: 1.2, Wildfire: 1.0 },
+    'Ciudad de México':    { Earthquake: 1.8, Hurricane: 0.2, Flood: 1.0, Wildfire: 0.4 },
+    'Veracruz':            { Earthquake: 0.9, Hurricane: 1.6, Flood: 2.0, Wildfire: 0.6 },
+    'Quintana Roo':        { Earthquake: 0.2, Hurricane: 2.4, Flood: 1.4, Wildfire: 0.7 },
+    'Baja California Sur': { Earthquake: 0.8, Hurricane: 2.0, Flood: 0.9, Wildfire: 1.2 },
+    'Jalisco':             { Earthquake: 1.4, Hurricane: 1.1, Flood: 1.0, Wildfire: 1.6 },
+    'Nuevo León':          { Earthquake: 0.3, Hurricane: 0.8, Flood: 1.3, Wildfire: 1.4 }
+  };
+  var PROPERTY_TYPES = ['House', 'Apartment', 'Shop', 'Warehouse', 'Farm'];
+  var DAMAGE = ['Minor', 'Moderate', 'Severe', 'Total loss'];
+  var POLICY_STATUS = ['Active', 'Pending', 'Expired', 'Cancelled'];
+  var CLAIM_STATUS = ['Open', 'Approved', 'Rejected'];
+
+  /* Chart colours: reference palette (categorical, sequential ordinal steps, fixed status) */
+  var C = {
+    blue: '#2a78d6', orange: '#eb6834',
+    good: '#0ca30c', warning: '#fab219', serious: '#ec835a', critical: '#d03b3b', neutral: '#898781',
+    ink: '#222222', ink2: '#52514e', muted: '#898781', grid: '#e1e0d9', axis: '#c3c2b7', surface: '#ffffff'
+  };
+  var STATUS_COLOR = {
+    Active: C.good, Pending: C.warning, Expired: C.neutral, Cancelled: C.critical,
+    Open: C.warning, Approved: C.good, Rejected: C.critical
+  };
+  // ordinal blue ramp for damage level (light → dark = minor → total loss)
+  var DAMAGE_COLOR = { 'Minor': '#86b6ef', 'Moderate': '#3987e5', 'Severe': '#1c5cab', 'Total loss': '#0d366b' };
+
+  /* ===================================================================
+     STORE (localStorage, wrapped so it never breaks the page)
+     =================================================================== */
+  var KEY = 'disasterDesk.v1';
+  var db;
+
+  var store = {
+    load: function () {
+      try { var raw = localStorage.getItem(KEY); if (raw) { db = JSON.parse(raw); return; } } catch (e) {}
+      db = seed();
+      store.save();
+    },
+    save: function () { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) {} },
+    reset: function () { try { localStorage.removeItem(KEY); } catch (e) {} db = seed(); store.save(); }
+  };
+
+  // Deterministic fictional demo data
+  function seed() {
+    var r = rng(11);
+    var names = ['Ana Torres', 'Luis Ramírez', 'María González', 'Carlos Herrera', 'Sofía Méndez',
+      'Jorge Castillo', 'Valeria Ruiz', 'Diego Navarro', 'Fernanda Ortiz', 'Ricardo Silva',
+      'Paola Vargas', 'Andrés Medina', 'Camila Rojas', 'Héctor Flores'];
+    var d = { holders: [], policies: [], claims: [], seq: { holder: 0, pol: 2000, clm: 7000 } };
+    var today = startOfDay(new Date());
+    var regions = Object.keys(REGIONS);
+
+    names.forEach(function (name) {
+      var hid = 'H' + pad3(++d.seq.holder);
+      d.holders.push({
+        id: hid, name: name,
+        phone: '55' + String(Math.floor(r() * 1e8)).padStart(8, '0'),
+        email: name.toLowerCase().split(' ')[0].normalize('NFD').replace(/[̀-ͯ]/g, '') + '@example.com'
+      });
+      var nPol = 1 + Math.floor(r() * 3);
+      for (var i = 0; i < nPol; i++) {
+        var region = pick(r, regions);
+        var type = pick(r, PROPERTY_TYPES);
+        var value = Math.round((1200000 + r() * (type === 'Warehouse' || type === 'Farm' ? 12e6 : 6e6)) / 10000) * 10000;
+        // cover the perils that matter most in that region, plus some random extras
+        var perils = PERILS.filter(function (p) { return REGIONS[region][p] >= 1.2 || r() < 0.35; });
+        if (!perils.length) perils = [PERILS[Math.floor(r() * 4)]];
+        var start = addDays(today, -Math.floor(r() * 540) + 20);
+        var end = addYears(start, 1);
+        var status = start > today ? 'Pending' : end < today ? 'Expired' : (r() < 0.07 ? 'Cancelled' : 'Active');
+        var pid = 'DCP-' + (++d.seq.pol);
+        d.policies.push({
+          id: pid, holderId: hid, type: type, region: region,
+          address: 'Demo address ' + (100 + Math.floor(r() * 900)),
+          value: value, perils: perils, premium: premium(value, region, perils),
+          start: iso(start), end: iso(end), status: status
+        });
+        var nClaims = r() < 0.3 ? 1 : 0;
+        for (var k = 0; k < nClaims; k++) {
+          var last = end < today ? end : today;
+          if (start >= last) break;
+          var cdate = addDays(start, Math.floor(r() * ((last - start) / 864e5)));
+          var peril = pick(r, perils);
+          var roll = r();
+          var dmg = roll < 0.5 ? 'Minor' : roll < 0.8 ? 'Moderate' : roll < 0.95 ? 'Severe' : 'Total loss';
+          var share = { 'Minor': 0.05, 'Moderate': 0.1, 'Severe': 0.2, 'Total loss': 0.5 }[dmg] * (0.6 + r() * 0.8);
+          var amount = Math.round(value * share / 1000) * 1000;
+          var age = (today - cdate) / 864e5;
+          d.claims.push({
+            id: 'DCC-' + (++d.seq.clm), policyId: pid, date: iso(cdate), peril: peril, damage: dmg,
+            amount: amount, payout: payout(amount, value, peril),
+            status: age < 45 ? 'Open' : (r() < 0.8 ? 'Approved' : 'Rejected'),
+            description: 'Demo claim'
+          });
+        }
+      }
+    });
+    return d;
+  }
+
+  function rng(seedVal) {   // mulberry32
+    return function () {
+      seedVal |= 0; seedVal = seedVal + 0x6D2B79F5 | 0;
+      var t = Math.imul(seedVal ^ seedVal >>> 15, 1 | seedVal);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  function pick(r, arr) { return arr[Math.floor(r() * arr.length)]; }
+
+  function premium(value, region, perils) {
+    return Math.round(value * perils.reduce(function (s, p) { return s + BASE_RATE[p] * REGIONS[region][p]; }, 0));
+  }
+  function deductible(value, peril) { return Math.round(value * DEDUCTIBLE[peril]); }
+  function payout(amount, value, peril) { return Math.max(0, amount - deductible(value, peril)); }
+  function riskLabel(m) { return m >= 1.8 ? 'Very high' : m >= 1.3 ? 'High' : m >= 0.8 ? 'Medium' : 'Low'; }
+
+  /* ===================================================================
+     GENERIC HELPERS
+     =================================================================== */
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function pad3(n) { return String(n).padStart(3, '0'); }
+  function startOfDay(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+  function addDays(d, n) { var x = new Date(d); x.setDate(x.getDate() + n); return x; }
+  function addYears(d, n) { var x = new Date(d); x.setFullYear(x.getFullYear() + n); return x; }
+  function iso(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function fromIso(s) { var p = s.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
+  function dmy(s) { var p = s.split('-'); return p[2] + '/' + p[1] + '/' + p[0]; }
+  function parseDMY(s) {
+    var m = /^(\d{1,2})[\/\-. ](\d{1,2})[\/\-. ](\d{4})$/.exec(s);
+    if (!m) return null;
+    var d = new Date(+m[3], +m[2] - 1, +m[1]);
+    return (d.getDate() === +m[1] && d.getMonth() === +m[2] - 1) ? d : null;
+  }
+  function money(v) { return '$' + Math.round(v).toLocaleString('en-US'); }
+  function compact(v) {
+    var a = Math.abs(v);
+    if (a >= 1e6) return '$' + (v / 1e6).toFixed(a >= 1e7 ? 0 : 1) + 'M';
+    if (a >= 1e3) return '$' + Math.round(v / 1e3) + 'K';
+    return '$' + Math.round(v);
+  }
+  function sum(arr, f) { return arr.reduce(function (s, x) { return s + f(x); }, 0); }
+  function by(field, value) { return function (x) { return x[field] === value; }; }
+  function uniq(arr) { return arr.filter(function (x, i) { return arr.indexOf(x) === i; }); }
+
+  var $content = document.getElementById('content');
+  var $band = document.getElementById('section-band');
+  var $bandText = document.getElementById('section-text');
+
+  function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+  function slot(name, root) { return (root || $content).querySelector('[data-slot="' + name + '"]'); }
+  function clear(name) { var s = slot(name); if (s) s.textContent = ''; }
+  function $(id) { return document.getElementById(id); }
+  function on(id, ev, fn) { $(id).addEventListener(ev, fn); }
+  function val(id) { return $(id).value.trim(); }
+  function each(sel, fn) { Array.prototype.forEach.call($content.querySelectorAll(sel), fn); }
+
+  function mount(id, title, linkText, linkTo) {
+    $content.textContent = '';
+    $content.appendChild($(id).content.cloneNode(true));
+    fx.enter($content);
+    $bandText.textContent = title;
+    var old = $band.querySelector('.pf-section-band__link');
+    if (old) old.remove();
+    if (linkText) {
+      var a = el('a', 'pf-section-band__link', linkText);
+      a.href = '#/' + linkTo;
+      a.addEventListener('click', function (e) { e.preventDefault(); go(linkTo); });
+      $band.appendChild(a);
+    }
+  }
+
+  function banner(text, info) {
+    var s = slot('banner'); s.textContent = '';
+    s.appendChild(el('div', 'pf-msg-banner' + (info ? ' pf-msg-banner--info' : ''), text));
+    fx.banner(s.firstChild);
+    if (!info) fx.shake(s.firstChild);
+  }
+  function msg(text) {
+    var s = slot('field-msg'); s.textContent = '';
+    s.appendChild(el('p', 'pf-msg-text', text));
+    fx.shake(s.firstChild);
+  }
+  function options(select, list, placeholder) {
+    select.textContent = '';
+    if (placeholder) { var o = el('option', null, placeholder); o.value = ''; select.appendChild(o); }
+    list.forEach(function (item) {
+      var opt = el('option', null, typeof item === 'string' ? item : item.label);
+      opt.value = typeof item === 'string' ? item : item.value;
+      select.appendChild(opt);
+    });
+  }
+  function dataRow(parent, label, value) {
+    var row = el('div', 'pf-data-row');
+    row.appendChild(el('span', 'pf-data-row__label', label));
+    row.appendChild(el('span', null, value));
+    parent.appendChild(row);
+  }
+  function fillTable(tbody, rows, cells, colspan, emptyText) {
+    fillTableRaw(tbody, rows, cells, colspan, emptyText);
+    fx.rows(tbody);
+  }
+  function fillTableRaw(tbody, rows, cells, colspan, emptyText) {
+    tbody.textContent = '';
+    if (!rows.length) {
+      var tr = el('tr'), td = el('td', 'pf-msg-empty', emptyText || 'No data found with the selected filter.');
+      td.colSpan = colspan; tr.appendChild(td); tbody.appendChild(tr); return;
+    }
+    rows.forEach(function (row) {
+      var tr = el('tr');
+      cells.forEach(function (c) {
+        var v = c(row);
+        var td = el('td');
+        if (v instanceof Node) td.appendChild(v); else td.textContent = v;
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+  }
+  function link(text, fn) {
+    var a = el('a', null, text);
+    a.href = '#';
+    a.addEventListener('click', function (e) { e.preventDefault(); fn(); });
+    return a;
+  }
+
+  /* ===================================================================
+     ANIMATIONS + POPUPS (JavaScript only – no CSS)
+     Animations use the Web Animations API (element.animate) and
+     requestAnimationFrame. Popups use the native <dialog> element.
+     Everything is skipped automatically when the viewer has
+     "reduce motion" turned on.
+     =================================================================== */
+  var fx = (function () {
+    var motion = true;
+    try { motion = !window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+    var canAnimate = motion && typeof Element !== 'undefined' && !!Element.prototype.animate;
+    var EASE = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
+
+    function tween(ms, step, done) {
+      if (!motion) { step(1); if (done) done(); return; }
+      var t0 = null;
+      function frame(t) {
+        if (t0 === null) t0 = t;
+        var k = Math.min(1, (t - t0) / ms);
+        step(1 - Math.pow(1 - k, 3));            // ease-out cubic
+        if (k < 1) requestAnimationFrame(frame); else if (done) done();
+      }
+      requestAnimationFrame(frame);
+    }
+
+    return {
+      // page / block entrance: fade + slide up
+      enter: function (node, delay) {
+        if (!canAnimate || !node) return;
+        node.animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }],
+          { duration: 280, delay: delay || 0, easing: EASE, fill: 'backwards' });
+      },
+      // banner: drop in, then a short highlight pulse
+      banner: function (node) {
+        if (!canAnimate || !node) return;
+        node.animate([{ opacity: 0, transform: 'translateY(-6px)' }, { opacity: 1, transform: 'none' }],
+          { duration: 260, easing: EASE });
+        node.animate([{ filter: 'brightness(1)' }, { filter: 'brightness(0.92)' }, { filter: 'brightness(1)' }],
+          { duration: 700, delay: 260 });
+      },
+      // shake a message so the user notices the error
+      shake: function (node) {
+        if (!canAnimate || !node) return;
+        node.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-5px)' }, { transform: 'translateX(5px)' },
+          { transform: 'translateX(-3px)' }, { transform: 'translateX(0)' }], { duration: 320 });
+      },
+      // table rows fade in one after another
+      rows: function (tbody) {
+        if (!canAnimate || !tbody) return;
+        Array.prototype.forEach.call(tbody.children, function (tr, i) {
+          tr.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, delay: Math.min(i, 15) * 25, fill: 'backwards' });
+        });
+      },
+      // numbers in cells count up from 0 ("$1,234", "$87M", "21.5%", "33")
+      countUp: function (cells) {
+        Array.prototype.forEach.call(cells, function (td) {
+          var m = /^(\$?)([\d,]+(?:\.\d+)?)([MK%]?)$/.exec(td.textContent.trim());
+          if (!m) return;
+          var target = parseFloat(m[2].replace(/,/g, ''));
+          var decimals = (m[2].split('.')[1] || '').length;
+          var useCommas = m[2].indexOf(',') >= 0 || target >= 1000;
+          tween(900, function (k) {
+            var v = target * k;
+            var s = decimals ? v.toFixed(decimals) : String(Math.round(v));
+            if (useCommas && !decimals) s = Math.round(v).toLocaleString('en-US');
+            td.textContent = m[1] + s + m[3];
+          });
+        });
+      },
+      // SVG bar grows up from the baseline (GPU Accelerated)
+      growBar: function (path, x, base, w, h, index, pathFn) {
+        path.setAttribute('d', pathFn(x, base - h, w, h)); // Set final shape
+        if (!canAnimate) return;
+        path.style.transformOrigin = x + 'px ' + base + 'px';
+        path.animate([
+          { transform: 'scaleY(0)' },
+          { transform: 'scaleY(1)' }
+        ], {
+          duration: 900,
+          delay: (index || 0) * 50,
+          easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+          fill: 'backwards'
+        });
+      },
+      // SVG line draws from left to right (GPU Accelerated)
+      drawLine: function (path) {
+        if (!canAnimate) return;
+        requestAnimationFrame(function () {          // wait until the chart is on the page
+          var len = path.getTotalLength ? path.getTotalLength() : 0;
+          if (!len) return;
+          path.setAttribute('stroke-dasharray', len);
+          path.animate([
+            { strokeDashoffset: len },
+            { strokeDashoffset: 0 }
+          ], {
+            duration: 1400,
+            easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+            fill: 'forwards'
+          }).onfinish = function () { 
+            path.removeAttribute('stroke-dasharray'); 
+            path.removeAttribute('stroke-dashoffset'); 
+          };
+        });
+      },
+      // fade an SVG element in after a delay
+      fadeSvg: function (node, delay) {
+        if (!motion) return;
+        node.setAttribute('opacity', 0);
+        setTimeout(function () { tween(300, function (k) { node.setAttribute('opacity', k); }); }, delay || 0);
+      },
+      // highlight a bar on hover
+      hover: function (node) {
+        node.addEventListener('mouseenter', function () { node.setAttribute('opacity', 0.82); });
+        node.addEventListener('mouseleave', function () { node.setAttribute('opacity', 1); });
+      }
+    };
+  })();
+
+  /* ---------- Popups (native <dialog>) ----------
+     popup({ title, body: string | Node, buttons: [{ label, primary, value }] })
+     returns a Promise with the value of the button pressed (null on Esc). */
+  function popup(opts) {
+    return new Promise(function (resolve) {
+      var host = document.querySelector('.pf-portal') || document.body;
+      var dlg = document.createElement('dialog');
+      dlg.setAttribute('aria-label', opts.title);
+
+      var title = el('p', 'pf-table-title', opts.title);
+      dlg.appendChild(title);
+      if (typeof opts.body === 'string') dlg.appendChild(el('p', null, opts.body));
+      else if (opts.body) dlg.appendChild(opts.body);
+
+      var row = el('div', 'pf-btn-row');
+      (opts.buttons || [{ label: 'Close', primary: true, value: 'close' }]).forEach(function (b) {
+        var btn = el('button', 'pf-btn ' + (b.primary ? 'pf-btn--primary' : 'pf-btn--secondary'), b.label);
+        btn.type = 'button';
+        btn.addEventListener('click', function () { finish(b.value); });
+        row.appendChild(btn);
+      });
+      dlg.appendChild(el('br'));
+      dlg.appendChild(row);
+
+      var done = false;
+      function finish(value) {
+        if (done) return;
+        done = true;
+        var close = function () { try { dlg.close(); } catch (e) {} dlg.remove(); resolve(value); };
+        if (dlg.animate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          dlg.animate([{ opacity: 1, transform: 'scale(1)' }, { opacity: 0, transform: 'scale(0.96)' }],
+            { duration: 150 }).onfinish = close;
+        } else close();
+      }
+      dlg.addEventListener('cancel', function (e) { e.preventDefault(); finish(null); });   // Esc
+      dlg.addEventListener('click', function (e) { if (e.target === dlg) {                 // click on backdrop
+        var r = dlg.getBoundingClientRect();
+        if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) finish(null);
+      } });
+
+      host.appendChild(dlg);
+      if (typeof dlg.showModal === 'function') dlg.showModal();
+      else dlg.setAttribute('open', '');
+      if (dlg.animate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        dlg.animate([{ opacity: 0, transform: 'scale(0.94) translateY(10px)' }, { opacity: 1, transform: 'none' }],
+          { duration: 240, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)' });
+      }
+      var primary = dlg.querySelector('.pf-btn--primary');
+      if (primary) primary.focus();
+    });
+  }
+
+  function confirmPopup(title, message, okLabel) {
+    return popup({ title: title, body: message, buttons: [
+      { label: 'Cancel', value: false },
+      { label: okLabel || 'Confirm', primary: true, value: true }
+    ] }).then(function (v) { return v === true; });
+  }
+
+  // popup body: label/value lines
+  function detailsBody(pairs) {
+    var box = el('div');
+    pairs.forEach(function (p) { dataRow(box, p[0], p[1]); });
+    return box;
+  }
+
+  // popup body: small scrolling table
+  function tableBody(headers, rows, cells) {
+    var wrap = el('div', 'pf-table-wrap');
+    var table = el('table', 'pf-table');
+    var thead = el('thead'), tr = el('tr');
+    headers.forEach(function (h) { tr.appendChild(el('th', null, h)); });
+    thead.appendChild(tr); table.appendChild(thead);
+    var tbody = el('tbody'); table.appendChild(tbody);
+    wrap.appendChild(table);
+    fillTable(tbody, rows, cells, headers.length, 'No records.');
+    return wrap;
+  }
+
+  function closePopups() {
+    Array.prototype.forEach.call(document.querySelectorAll('dialog'), function (d) {
+      try { d.close(); } catch (e) {} d.remove();
+    });
+  }
+
+  // link inside a popup that closes it first
+  function popupLink(text, fn) { return link(text, function () { closePopups(); fn(); }); }
+
+  // "Saved" popup after a new entry
+  function successPopup(text) {
+    popup({ title: 'Saved', body: text, buttons: [
+      { label: 'Add another', value: 'new' },
+      { label: 'OK', primary: true, value: 'ok' }
+    ] }).then(function (v) { if (v === 'new') go('new'); });
+  }
+
+  /* ===================================================================
+     SVG CHARTS (no library)
+     =================================================================== */
+  var NS = 'http://www.w3.org/2000/svg';
+  function svgEl(tag, attrs, parent) {
+    var n = document.createElementNS(NS, tag);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+  function svgText(parent, x, y, text, attrs) {
+    var a = { x: x, y: y, 'font-family': 'Arial, Helvetica, sans-serif', 'font-size': 11, fill: C.ink2 };
+    for (var k in attrs) a[k] = attrs[k];
+    var t = svgEl('text', a, parent);
+    t.textContent = text;
+    return t;
+  }
+  // returns { max, ticks } with round tick steps; integer=true for counts
+  function scale(v, integer) {
+    if (v <= 0) return { max: integer ? 4 : 1, ticks: 4 };
+    var raw = v / 4, p = Math.pow(10, Math.floor(Math.log10(raw))), n = raw / p;
+    var step = (n <= 1 ? 1 : n <= 2 ? 2 : (n <= 2.5 && !integer) ? 2.5 : n <= 5 ? 5 : 10) * p;
+    if (integer) step = Math.max(1, Math.round(step));
+    var ticks = Math.ceil(v / step);
+    return { max: step * ticks, ticks: ticks };
+  }
+  function frame(title, subtitle, W, H) {
+    var svg = svgEl('svg', { width: W, height: H, viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': title });
+    svgEl('rect', { x: 0, y: 0, width: W, height: H, fill: C.surface }, svg);
+    svgText(svg, 0, 14, title, { 'font-size': 12, 'font-weight': 700, fill: C.ink });
+    if (subtitle) svgText(svg, 0, 28, subtitle, { fill: C.muted });
+    return svg;
+  }
+  function yAxis(svg, m, W, plotH, sc, fmt) {
+    var max = sc.max;
+    for (var i = 0; i <= sc.ticks; i++) {
+      var y = m.t + plotH - (plotH * i / sc.ticks);
+      svgEl('line', { x1: m.l, x2: W - m.r, y1: y, y2: y, stroke: i === 0 ? C.axis : C.grid, 'stroke-width': 1 }, svg);
+      svgText(svg, m.l - 6, y + 4, fmt(max * i / sc.ticks), { 'text-anchor': 'end', fill: C.muted, 'font-size': 10 });
+    }
+  }
+  // bar with a 4px rounded top, square at the baseline
+  function barPath(x, y, w, h) {
+    var r = Math.min(4, h, w / 2);
+    return 'M' + x + ',' + (y + h) + 'V' + (y + r) + 'Q' + x + ',' + y + ' ' + (x + r) + ',' + y +
+      'H' + (x + w - r) + 'Q' + (x + w) + ',' + y + ' ' + (x + w) + ',' + (y + r) + 'V' + (y + h) + 'Z';
+  }
+
+  /* Vertical bar chart. items: [{label, value, color?, note?}] */
+  function barChart(opts) {
+    var W = opts.width || 540, H = 260, m = { t: 44, r: 12, b: 40, l: 60 };
+    var svg = frame(opts.title, opts.subtitle, W, H);
+    var plotW = W - m.l - m.r, plotH = H - m.t - m.b;
+    var items = opts.items;
+    if (!items.length || !items.some(function (i) { return i.value > 0; })) {
+      svgText(svg, W / 2, H / 2, 'No data for this selection.', { 'text-anchor': 'middle' });
+      return svg;
+    }
+    var sc = scale(Math.max.apply(null, items.map(function (i) { return i.value; })), opts.integer);
+    var max = sc.max;
+    yAxis(svg, m, W, plotH, sc, opts.axisFormat || String);
+    var band = plotW / items.length;
+    var bw = Math.min(44, band * 0.6);
+    items.forEach(function (it, i) {
+      var cx = m.l + band * i + band / 2;
+      var h = plotH * it.value / max;
+      var g = svgEl('g', {}, svg);
+      var tip = svgEl('title', {}, g);
+      tip.textContent = it.label + ': ' + opts.format(it.value) + (it.note ? ' · ' + it.note : '') +
+        (it.onClick ? ' · click for details' : '');
+      // hit target = the whole column, bigger than the bar
+      svgEl('rect', { x: m.l + band * i, y: m.t, width: band, height: plotH, fill: 'transparent' }, g);
+      if (h > 0) {
+        var bar = svgEl('path', { d: barPath(cx - bw / 2, m.t + plotH - h, bw, h), fill: it.color || C.blue }, g);
+        fx.growBar(bar, cx - bw / 2, m.t + plotH, bw, h, i, barPath);
+        fx.hover(bar);
+      }
+      var valueLabel = svgText(g, cx, m.t + plotH - h - 5, opts.format(it.value), { 'text-anchor': 'middle', fill: C.ink, 'font-size': 10 });
+      fx.fadeSvg(valueLabel, 450 + i * 60);
+      if (it.onClick) { g.setAttribute('cursor', 'pointer'); g.addEventListener('click', it.onClick); }
+      var label = it.label.length > 14 ? it.label.slice(0, 13) + '…' : it.label;
+      svgText(g, cx, m.t + plotH + 15, label, { 'text-anchor': 'middle' });
+    });
+    return svg;
+  }
+
+  /* Line chart, one shared y-axis. series: [{name, color, values[]}], labels[] */
+  function lineChart(opts) {
+    var W = opts.width || 540, H = 260, m = { t: 44, r: 84, b: 40, l: 60 };
+    var svg = frame(opts.title, opts.subtitle, W, H);
+    var plotW = W - m.l - m.r, plotH = H - m.t - m.b;
+    var n = opts.labels.length;
+    var all = [];
+    opts.series.forEach(function (s) { all = all.concat(s.values); });
+    var sc = scale(Math.max.apply(null, all.concat([1])));
+    var max = sc.max;
+    yAxis(svg, m, W, plotH, sc, compact);
+    function x(i) { return m.l + (n === 1 ? plotW / 2 : plotW * i / (n - 1)); }
+    function y(v) { return m.t + plotH - plotH * v / max; }
+
+    opts.labels.forEach(function (lab, i) {
+      if (i % 2 === 0) svgText(svg, x(i), m.t + plotH + 15, lab, { 'text-anchor': 'middle', fill: C.muted, 'font-size': 10 });
+    });
+
+    // legend (top right)
+    var lx = W - m.r;
+    opts.series.slice().reverse().forEach(function (s) {
+      var t = svgText(svg, lx, 14, s.name, { 'text-anchor': 'end', fill: C.ink2 });
+      var w = s.name.length * 5.6;
+      svgEl('line', { x1: lx - w - 22, x2: lx - w - 8, y1: 10, y2: 10, stroke: s.color, 'stroke-width': 2 }, svg);
+      lx = lx - w - 34;
+    });
+
+    opts.series.forEach(function (s) {
+      var d = s.values.map(function (v, i) { return (i ? 'L' : 'M') + x(i) + ',' + y(v); }).join('');
+      fx.drawLine(svgEl('path', { d: d, fill: 'none', stroke: s.color, 'stroke-width': 2, 'stroke-linejoin': 'round' }, svg));
+      var lastV = s.values[n - 1];
+      svgEl('circle', { cx: x(n - 1), cy: y(lastV), r: 4, fill: s.color, stroke: C.surface, 'stroke-width': 2 }, svg);
+      // direct label at the line end
+      s._labelY = y(lastV);
+    });
+    // keep the two end labels from colliding
+    var ends = opts.series.slice().sort(function (a, b) { return a._labelY - b._labelY; });
+    for (var k = 1; k < ends.length; k++) {
+      if (ends[k]._labelY - ends[k - 1]._labelY < 12) ends[k]._labelY = ends[k - 1]._labelY + 12;
+    }
+    var overflow = ends.length ? ends[ends.length - 1]._labelY - (m.t + plotH - 4) : 0;
+    if (overflow > 0) ends.forEach(function (s) { s._labelY -= overflow; });
+    opts.series.forEach(function (s) {
+      svgText(svg, x(n - 1) + 8, s._labelY + 4, s.name, { fill: C.ink2, 'font-size': 10 });
+    });
+
+    // hover layer: crosshair + tooltip
+    var hover = svgEl('g', { visibility: 'hidden', 'pointer-events': 'none' }, svg);
+    var cross = svgEl('line', { y1: m.t, y2: m.t + plotH, stroke: C.axis, 'stroke-width': 1 }, hover);
+    var dots = opts.series.map(function (s) {
+      return svgEl('circle', { r: 4, fill: s.color, stroke: C.surface, 'stroke-width': 2 }, hover);
+    });
+    var box = svgEl('rect', { width: 150, height: 18 + 14 * opts.series.length, fill: C.surface, stroke: C.axis, 'stroke-width': 1 }, hover);
+    var head = svgText(hover, 0, 0, '', { fill: C.ink, 'font-weight': 700 });
+    var lines = opts.series.map(function () { return svgText(hover, 0, 0, '', { fill: C.ink2 }); });
+
+    var hit = svgEl('rect', { x: m.l, y: m.t, width: plotW, height: plotH, fill: 'transparent' }, svg);
+    hit.addEventListener('mousemove', function (e) {
+      var rect = svg.getBoundingClientRect();
+      var px = (e.clientX - rect.left) * (W / rect.width);
+      var i = Math.max(0, Math.min(n - 1, Math.round((px - m.l) / (plotW / Math.max(1, n - 1)))));
+      var cx = x(i);
+      cross.setAttribute('x1', cx); cross.setAttribute('x2', cx);
+      opts.series.forEach(function (s, j) {
+        dots[j].setAttribute('cx', cx); dots[j].setAttribute('cy', y(s.values[i]));
+        lines[j].textContent = s.name + ': ' + money(s.values[i]);
+      });
+      head.textContent = opts.labels[i];
+      var bx = cx + 10 + 150 > W ? cx - 160 : cx + 10;
+      box.setAttribute('x', bx); box.setAttribute('y', m.t);
+      head.setAttribute('x', bx + 8); head.setAttribute('y', m.t + 14);
+      lines.forEach(function (l, j) { l.setAttribute('x', bx + 8); l.setAttribute('y', m.t + 28 + 14 * j); });
+      hover.setAttribute('visibility', 'visible');
+    });
+    hit.addEventListener('mouseleave', function () { hover.setAttribute('visibility', 'hidden'); });
+    return svg;
+  }
+
+  function placeCharts(container, svgs) {
+    container.textContent = '';
+    svgs.forEach(function (s, i) {
+      if (i) container.appendChild(document.createTextNode(' '));
+      container.appendChild(s);
+    });
+  }
+
+  /* ===================================================================
+
+
+  /* ===================================================================
+     DERIVED DATA
+     =================================================================== */
+  function holderOf(policy) { return db.holders.filter(by('id', policy.holderId))[0]; }
+  function claimsOfPolicies(pols) {
+    var ids = pols.map(function (p) { return p.id; });
+    return db.claims.filter(function (c) { return ids.indexOf(c.policyId) >= 0; });
+  }
+  function last12Months() {
+    var out = [], t = new Date();
+    for (var i = 11; i >= 0; i--) {
+      var d = new Date(t.getFullYear(), t.getMonth() - i, 1);
+      out.push({ key: d.getFullYear() + '-' + pad(d.getMonth() + 1),
+                 label: d.toLocaleString('en-US', { month: 'short' }) + ' ' + String(d.getFullYear()).slice(2) });
+    }
+    return out;
+  }
+
+  /* ===================================================================
+     PAGE 1 · DASHBOARD
+     =================================================================== */
+  var dash = { peril: 'All', search: '' };
+
+  function pageDashboard() {
+    mount('tpl-dashboard', 'Catastrophe portfolio dashboard', 'New entry', 'new');
+    if (state.flash) { banner(state.flash, true); state.flash = null; }
+
+    each('[data-peril]', function (a) {
+      a.classList.toggle('pf-filter__link--active', a.getAttribute('data-peril') === dash.peril);
+      a.addEventListener('click', function (e) {
+        e.preventDefault();
+        dash.peril = a.getAttribute('data-peril');
+        each('[data-peril]', function (b) { b.classList.toggle('pf-filter__link--active', b === a); });
+        drawDashboard();
+      });
+    });
+
+    $('search').value = dash.search;
+    on('search', 'input', function (e) { dash.search = e.target.value.trim().toLowerCase(); drawHolders(); });
+    on('new-entry', 'click', function () { state.newFor = null; go('new'); });
+    on('reset-data', 'click', function () {
+      confirmPopup('Reset demo data', 'This removes every entry you added and restores the original demo data.', 'Reset')
+        .then(function (ok) {
+          if (!ok) return;
+          store.reset(); dash.peril = 'All'; dash.search = '';
+      state.flash = 'Demo data has been reset.'; pageDashboard();
+        });
+    });
+    drawDashboard();
+  }
+
+  // Policies covering the selected peril, and claims for that peril
+  function filteredPolicies() {
+    return db.policies.filter(function (p) { return dash.peril === 'All' || p.perils.indexOf(dash.peril) >= 0; });
+  }
+  function filteredClaims(pols) {
+    return claimsOfPolicies(pols).filter(function (c) { return dash.peril === 'All' || c.peril === dash.peril; });
+  }
+
+  function drawDashboard() {
+    var pols = filteredPolicies();
+    var claims = filteredClaims(pols);
+    var active = pols.filter(by('status', 'Active'));
+    var approved = claims.filter(by('status', 'Approved'));
+    var paid = sum(approved, function (c) { return c.payout; });
+    var premiumAll = sum(pols, function (p) { return p.premium; });
+
+    fillTable(slot('kpis'), [1], [
+      function () { return String(pols.length); },
+      function () { return String(active.length); },
+      function () { return money(sum(active, function (p) { return p.premium; })); },
+      function () { return compact(sum(active, function (p) { return p.value; })); },
+      function () { return String(claims.length); },
+      function () { return String(claims.filter(by('status', 'Open')).length); },
+      function () { return money(paid); },
+      function () { return premiumAll ? (paid / premiumAll * 100).toFixed(1) + '%' : '—'; }
+    ], 8);
+    fx.countUp(slot('kpis').querySelectorAll('td'));
+
+    // Chart 1: exposure (active sum insured) by region, sorted
+    var regionItems = Object.keys(REGIONS).map(function (rg) {
+      var ps = active.filter(by('region', rg));
+      return { label: rg, value: sum(ps, function (p) { return p.value; }), note: ps.length + ' active policies',
+               onClick: function () { showPolicies('Active policies in ' + rg, ps); } };
+    }).filter(function (i) { return i.value > 0; }).sort(function (a, b) { return b.value - a.value; });
+
+    // Chart 2: amount claimed by peril, sorted
+    var perilItems = PERILS.map(function (p) {
+      var cs = claims.filter(by('peril', p));
+      return { label: p, value: sum(cs, function (c) { return c.amount; }), note: cs.length + ' claims',
+               onClick: function () { showClaims(p + ' claims', cs); } };
+    }).filter(function (i) { return i.value > 0; }).sort(function (a, b) { return b.value - a.value; });
+
+    placeCharts(slot('charts-1'), [
+      barChart({ title: 'Exposure by region', subtitle: 'Active sum insured, MXN · hover for policy count',
+                 items: regionItems, format: compact, axisFormat: compact }),
+      barChart({ title: 'Amount claimed by peril', subtitle: 'MXN · hover for claim count',
+                 items: perilItems, format: compact, axisFormat: compact })
+    ]);
+
+    // Chart 3: claims by status (estimated payout)
+    var statusItems = CLAIM_STATUS.map(function (s) {
+      var cs = claims.filter(by('status', s));
+      return { label: s, value: sum(cs, function (c) { return c.payout; }), color: STATUS_COLOR[s], note: cs.length + ' claims',
+               onClick: function () { showClaims(s + ' claims', cs); } };
+    });
+    // Chart 4: premium written vs payout approved, last 12 months
+    var months = last12Months();
+    var written = months.map(function (mo) {
+      return sum(pols.filter(function (p) { return p.start.slice(0, 7) === mo.key; }), function (p) { return p.premium; });
+    });
+    var paidOut = months.map(function (mo) {
+      return sum(approved.filter(function (c) { return c.date.slice(0, 7) === mo.key; }), function (c) { return c.payout; });
+    });
+
+    placeCharts(slot('charts-2'), [
+      barChart({ title: 'Claims by status', subtitle: 'Estimated payout, MXN · hover for claim count',
+                 items: statusItems, format: compact, axisFormat: compact }),
+      lineChart({ title: 'Premium written vs payout approved', subtitle: 'Last 12 months, MXN',
+                  labels: months.map(function (m) { return m.label; }),
+                  series: [{ name: 'Premium', color: C.blue, values: written },
+                           { name: 'Payout', color: C.orange, values: paidOut }] })
+    ]);
+
+    drawHolders();
+  }
+
+  function drawHolders() {
+    var pols = filteredPolicies();
+    var rows = db.holders.map(function (h) {
+      var ps = pols.filter(by('holderId', h.id));
+      var cl = filteredClaims(ps);
+      return {
+        h: h, pols: ps, claims: cl, regions: uniq(ps.map(function (p) { return p.region; })),
+        status: ps.some(by('status', 'Active')) ? 'Active' : ps.some(by('status', 'Pending')) ? 'Pending' : 'Inactive'
+      };
+    }).filter(function (r) {
+      if (!r.pols.length) return false;
+      if (!dash.search) return true;
+      return r.h.name.toLowerCase().indexOf(dash.search) >= 0 ||
+        r.regions.some(function (g) { return g.toLowerCase().indexOf(dash.search) >= 0; });
+    }).sort(function (a, b) { return a.h.name.localeCompare(b.h.name); });
+
+    fillTable(slot('holders'), rows, [
+      function (r) { return link(r.h.name, function () { state.holderId = r.h.id; go('holder'); }); },
+      function (r) { return String(r.pols.length); },
+      function (r) { return r.regions.join(', '); },
+      function (r) { return compact(sum(r.pols, function (p) { return p.value; })); },
+      function (r) { return money(sum(r.pols, function (p) { return p.premium; })); },
+      function (r) { return String(r.claims.length); },
+      function (r) { return String(r.claims.filter(by('status', 'Open')).length); },
+      function (r) { return r.status; }
+    ], 8);
+  }
+
+  /* ===================================================================
+     PAGE 2 · POLICYHOLDER
+     =================================================================== */
+  function pageHolder() {
+    var h = db.holders.filter(by('id', state.holderId))[0];
+    if (!h) { go('dashboard'); return; }
+    mount('tpl-holder', 'Policyholder · ' + h.name, 'Dashboard', 'dashboard');
+    if (state.flash) { banner(state.flash, true); state.flash = null; }
+
+    var pols = db.policies.filter(by('holderId', h.id));
+    var claims = claimsOfPolicies(pols).sort(function (a, b) { return b.date.localeCompare(a.date); });
+    var active = pols.filter(by('status', 'Active'));
+
+    var box = slot('details');
+    dataRow(box, 'Policyholder ID:', h.id);
+    dataRow(box, 'Name:', h.name);
+    dataRow(box, 'Phone:', h.phone);
+    dataRow(box, 'Email:', h.email);
+    dataRow(box, 'Active sum insured:', money(sum(active, function (p) { return p.value; })));
+    dataRow(box, 'Annual premium (active):', money(sum(active, function (p) { return p.premium; })));
+
+    placeCharts(slot('charts'), [
+      barChart({
+        title: 'Claims by damage level', subtitle: 'Number of claims, minor → total loss',
+        items: DAMAGE.map(function (d) {
+          var cs = claims.filter(by('damage', d));
+          return { label: d, value: cs.length, color: DAMAGE_COLOR[d], note: 'claimed ' + money(sum(cs, function (c) { return c.amount; })),
+                   onClick: function () { showClaims(d + ' damage claims', cs); } };
+        }),
+        format: String, integer: true, axisFormat: function (v) { return String(Math.round(v)); }
+      }),
+      barChart({
+        title: 'Claims by status', subtitle: 'Estimated payout, MXN',
+        items: CLAIM_STATUS.map(function (s) {
+          var cs = claims.filter(by('status', s));
+          return { label: s, value: sum(cs, function (c) { return c.payout; }), color: STATUS_COLOR[s], note: cs.length + ' claims' };
+        }),
+        format: compact, axisFormat: compact
+      })
+    ]);
+
+    fillTable(slot('policies'), pols, [
+      function (p) { return p.id; },
+      function (p) { return p.type; },
+      function (p) { return p.region; },
+      function (p) { return p.perils.join(', '); },
+      function (p) { return money(p.value); },
+      function (p) { return money(p.premium); },
+      function (p) { return dmy(p.start); },
+      function (p) { return dmy(p.end); },
+      function (p) { return p.status; }
+    ], 9, 'No policies.');
+
+    fillTable(slot('claims'), claims, [
+      function (x) { return link(x.id, function () { showClaim(x); }); },
+      function (x) { return x.policyId; },
+      function (x) { return dmy(x.date); },
+      function (x) { return x.peril; },
+      function (x) { return x.damage; },
+      function (x) { return money(x.amount); },
+      function (x) { return money(x.payout); },
+      function (x) { return x.status; },
+      function (x) {
+        if (x.status !== 'Open') return '';
+        var span = el('span');
+        span.appendChild(link('Approve', function () { setClaim(x, 'Approved'); }));
+        span.appendChild(document.createTextNode(' · '));
+        span.appendChild(link('Reject', function () { setClaim(x, 'Rejected'); }));
+        return span;
+      }
+    ], 9, 'No claims.');
+
+    on('back', 'click', function () { go('dashboard'); });
+    on('new-entry', 'click', function () { state.newFor = h.id; go('new'); });
+  }
+
+  function policyOf(claim) { return db.policies.filter(by('id', claim.policyId))[0]; }
+
+  function showPolicies(title, list) {
+    popup({ title: title + ' (' + list.length + ')', body: tableBody(
+      ['Policy', 'Policyholder', 'Property', 'Region', 'Perils', 'Sum insured', 'Status'], list, [
+        function (p) { return p.id; },
+        function (p) { var h = holderOf(p); return popupLink(h.name, function () { state.holderId = h.id; go('holder'); }); },
+        function (p) { return p.type; },
+        function (p) { return p.region; },
+        function (p) { return p.perils.join(', '); },
+        function (p) { return compact(p.value); },
+        function (p) { return p.status; }
+      ]) });
+  }
+
+  function showClaims(title, list) {
+    popup({ title: title + ' (' + list.length + ')', body: tableBody(
+      ['Claim', 'Policyholder', 'Region', 'Date', 'Damage', 'Est. payout', 'Status'], list, [
+        function (x) { return popupLink(x.id, function () { showClaim(x); }); },
+        function (x) { var h = holderOf(policyOf(x)); return popupLink(h.name, function () { state.holderId = h.id; go('holder'); }); },
+        function (x) { return policyOf(x).region; },
+        function (x) { return dmy(x.date); },
+        function (x) { return x.damage; },
+        function (x) { return money(x.payout); },
+        function (x) { return x.status; }
+      ]) });
+  }
+
+  function showClaim(x) {
+    var p = policyOf(x), h = holderOf(p);
+    var buttons = x.status === 'Open'
+      ? [{ label: 'Reject', value: 'Rejected' }, { label: 'Approve', primary: true, value: 'Approved' }, { label: 'Close', value: null }]
+      : [{ label: 'Close', primary: true, value: null }];
+    popup({ title: 'Claim ' + x.id, body: detailsBody([
+      ['Policyholder:', h.name], ['Policy:', p.id], ['Property:', p.type + ', ' + p.address],
+      ['Region:', p.region], ['Perils covered:', p.perils.join(', ')], ['Sum insured:', money(p.value)],
+      ['Date of event:', dmy(x.date)], ['Peril:', x.peril], ['Damage level:', x.damage],
+      ['Amount claimed:', money(x.amount)], ['Deductible:', money(deductible(p.value, x.peril))],
+      ['Estimated payout:', money(x.payout)], ['Status:', x.status], ['Description:', x.description || '—']
+    ]), buttons: buttons }).then(function (v) {
+      if (v === 'Approved' || v === 'Rejected') { state.holderId = h.id; applyClaim(x, v); }
+    });
+  }
+
+  function setClaim(claim, status) {
+    confirmPopup(status === 'Approved' ? 'Approve claim' : 'Reject claim',
+      'Mark claim ' + claim.id + ' (' + money(claim.amount) + ') as ' + status + '?',
+      status === 'Approved' ? 'Approve' : 'Reject')
+      .then(function (ok) { if (ok) applyClaim(claim, status); });
+  }
+  function applyClaim(claim, status) {
+    claim.status = status;
+    store.save();
+    state.flash = 'Claim ' + claim.id + ' marked as ' + status + '.';
+    go('holder');
+  }
+
+  /* ===================================================================
+     PAGE 3 · NEW ENTRY
+     =================================================================== */
+  function pageNew() {
+    mount('tpl-new', 'New entry', 'Dashboard', 'dashboard');
+    each('input[name="entry-type"]', function (r) { r.addEventListener('change', drawForm); });
+    on('cancel', 'click', function () { state.newFor ? go('holder') : go('dashboard'); });
+    on('save', 'click', function () { $('type-policy').checked ? savePolicy() : saveClaim(); });
+    drawForm();
+  }
+
+  function drawForm() {
+    clear('banner'); clear('field-msg');
+    var box = slot('form');
+    box.textContent = '';
+    var isPolicy = $('type-policy').checked;
+    box.appendChild($(isPolicy ? 'tpl-form-policy' : 'tpl-form-claim').content.cloneNode(true));
+    if (isPolicy) setupPolicyForm(); else setupClaimForm();
+  }
+
+  function setupPolicyForm() {
+    options($('np-holder'), [{ value: '__new', label: 'New policyholder' }].concat(
+      db.holders.slice().sort(function (a, b) { return a.name.localeCompare(b.name); })
+        .map(function (h) { return { value: h.id, label: h.name + ' (' + h.id + ')' }; })));
+    if (state.newFor) $('np-holder').value = state.newFor;
+    options($('np-type'), PROPERTY_TYPES, 'Select an option');
+    options($('np-region'), Object.keys(REGIONS), 'Select an option');
+    $('np-start').value = dmy(iso(new Date()));
+
+    // peril checkboxes (native)
+    var box = slot('perils');
+    PERILS.forEach(function (p) {
+      var cb = el('input'); cb.type = 'checkbox'; cb.id = 'np-peril-' + p; cb.value = p;
+      var lb = el('label', null, p + '   '); lb.htmlFor = cb.id;
+      box.appendChild(cb); box.appendChild(lb);
+      cb.addEventListener('change', calc);
+    });
+
+    function toggleHolder() {
+      var isNew = $('np-holder').value === '__new';
+      ['np-name', 'np-phone', 'np-email'].forEach(function (id) { $(id).disabled = !isNew; });
+    }
+    on('np-holder', 'change', toggleHolder);
+    toggleHolder();
+
+    on('np-phone', 'input', function (e) { e.target.value = e.target.value.replace(/\D/g, ''); });
+    on('np-value', 'input', function (e) { e.target.value = e.target.value.replace(/\D/g, ''); calc(); });
+    on('np-region', 'change', calc);
+
+    function calc() {
+      var rg = $('np-region').value, v = parseInt(val('np-value'), 10), perils = checkedPerils();
+      slot('risk').textContent = rg
+        ? PERILS.map(function (p) { return p + ' ' + riskLabel(REGIONS[rg][p]); }).join(' · ')
+        : '—';
+      slot('premium').textContent = (rg && v && perils.length) ? money(premium(v, rg, perils)) : '—';
+    }
+  }
+
+  function checkedPerils() {
+    return PERILS.filter(function (p) { var cb = $('np-peril-' + p); return cb && cb.checked; });
+  }
+
+  function savePolicy() {
+    clear('banner'); clear('field-msg');
+    var sel = $('np-holder').value, isNew = sel === '__new';
+    var f = {
+      name: val('np-name'), phone: val('np-phone'), email: val('np-email'),
+      type: $('np-type').value, region: $('np-region').value, address: val('np-address'),
+      value: parseInt(val('np-value'), 10), perils: checkedPerils(), start: parseDMY(val('np-start'))
+    };
+
+    if ((isNew && (!f.name || !f.phone || !f.email)) ||
+        !f.type || !f.region || !f.address || !f.value || !val('np-start')) {
+      banner('Complete all the required fields.'); return;
+    }
+    if (!f.perils.length) { msg('*** Select at least one peril ***'); return; }
+    if (isNew && !/^\d{10}$/.test(f.phone)) { msg('*** Enter a 10-digit phone number ***'); return; }
+    if (isNew && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)) { msg('*** Enter a valid email address ***'); return; }
+    if (f.value < 200000 || f.value > 50000000) { msg('*** Sum insured must be between $200,000 and $50,000,000 ***'); return; }
+    if (!f.start) { msg('*** Enter a valid start date (dd/mm/yyyy) ***'); return; }
+
+    var holderId = sel;
+    if (isNew) {
+      holderId = 'H' + pad3(++db.seq.holder);
+      db.holders.push({ id: holderId, name: f.name, phone: f.phone, email: f.email });
+    }
+    var today = startOfDay(new Date());
+    var pol = {
+      id: 'DCP-' + (++db.seq.pol), holderId: holderId, type: f.type, region: f.region, address: f.address,
+      value: f.value, perils: f.perils, premium: premium(f.value, f.region, f.perils),
+      start: iso(f.start), end: iso(addYears(f.start, 1)),
+      status: f.start > today ? 'Pending' : addYears(f.start, 1) < today ? 'Expired' : 'Active'
+    };
+    db.policies.push(pol);
+    store.save();
+    state.holderId = holderId;
+    state.flash = 'Policy ' + pol.id + ' created: ' + f.type + ' in ' + f.region + ', covering ' +
+      f.perils.join(', ') + '. Annual premium ' + money(pol.premium) + '.';
+    var note = state.flash;
+    go('holder');
+    successPopup(note);
+  }
+
+  function setupClaimForm() {
+    var active = db.policies.filter(by('status', 'Active'))
+      .filter(function (p) { return !state.newFor || p.holderId === state.newFor; });
+    options($('nc-policy'), active.map(function (p) {
+      return { value: p.id, label: p.id + ' · ' + p.type + ' · ' + p.region + ' · ' + holderOf(p).name };
+    }), active.length ? 'Select an option' : 'No active policies');
+    options($('nc-peril'), [], 'Select a policy first');
+    options($('nc-damage'), DAMAGE, 'Select an option');
+    $('nc-date').value = dmy(iso(new Date()));
+
+    on('nc-policy', 'change', function () {
+      var pol = db.policies.filter(by('id', $('nc-policy').value))[0];
+      options($('nc-peril'), pol ? pol.perils : [], pol ? 'Select an option' : 'Select a policy first');
+      est();
+    });
+    on('nc-peril', 'change', est);
+    on('nc-amount', 'input', function (e) { e.target.value = e.target.value.replace(/\D/g, ''); est(); });
+
+    function est() {
+      var pol = db.policies.filter(by('id', $('nc-policy').value))[0];
+      var peril = $('nc-peril').value, amt = parseInt(val('nc-amount'), 10);
+      if (!pol || !peril) { slot('deductible').textContent = '—'; slot('payout').textContent = '—'; return; }
+      slot('deductible').textContent = money(deductible(pol.value, peril)) + ' (' + (DEDUCTIBLE[peril] * 100) + '% of sum insured)';
+      slot('payout').textContent = amt ? money(payout(amt, pol.value, peril)) : '—';
+    }
+  }
+
+  function saveClaim() {
+    clear('banner'); clear('field-msg');
+    var pid = $('nc-policy').value, peril = $('nc-peril').value, dmg = $('nc-damage').value;
+    var amount = parseInt(val('nc-amount'), 10), date = parseDMY(val('nc-date'));
+    if (!pid || !peril || !dmg || !amount || !val('nc-date')) { banner('Complete all the required fields.'); return; }
+    var pol = db.policies.filter(by('id', pid))[0];
+    if (!date) { msg('*** Enter a valid date of event (dd/mm/yyyy) ***'); return; }
+    if (date > new Date() || date < fromIso(pol.start) || date > fromIso(pol.end)) {
+      msg('*** The event date must be within the policy period and not in the future ***'); return;
+    }
+    if (amount > pol.value) { msg('*** The amount cannot exceed the sum insured (' + money(pol.value) + ') ***'); return; }
+
+    var claim = { id: 'DCC-' + (++db.seq.clm), policyId: pid, date: iso(date), peril: peril, damage: dmg,
+                  amount: amount, payout: payout(amount, pol.value, peril), status: 'Open', description: val('nc-desc') };
+    db.claims.push(claim);
+    store.save();
+    state.holderId = pol.holderId;
+    state.flash = 'Claim ' + claim.id + ' registered on ' + pid + ' (' + peril + ', ' + dmg + '). Estimated payout ' +
+      money(claim.payout) + '. Status: Open.';
+    var note = state.flash;
+    go('holder');
+    successPopup(note);
+  }
+
+  /* ===================================================================
+     ROUTER (does not depend on hashchange – works in preview panes too)
+     =================================================================== */
+  var state = { holderId: null, newFor: null, flash: null };
+  var routes = { dashboard: pageDashboard, holder: pageHolder, new: pageNew };
+
+  function hashName() { try { return location.hash.replace('#/', '') || 'dashboard'; } catch (e) { return 'dashboard'; } }
+  function setUrl(name, replace) {
+    try { (replace ? history.replaceState : history.pushState).call(history, null, '', '#/' + name); } catch (e) {}
+  }
+  function go(name) { render(name, false); }
+  function render(name, replace) {
+    if (!routes[name]) name = 'dashboard';
+    if (name === 'holder' && !state.holderId) name = 'dashboard';
+    setUrl(name, replace);
+    routes[name]();
+    try { window.scrollTo(0, 0); } catch (e) {}
+  }
+  window.addEventListener('popstate', function () { render(hashName(), true); });
+
+  store.load();
+  render(hashName(), true);
+})();
+</script>
+
+<script>
+// Custom Dropdown Polyfill
+document.addEventListener('DOMContentLoaded', () => {
+  function upgradeSelects() {
+    document.querySelectorAll('.pf-select').forEach(select => {
+      // Don't process twice
+      if (select.dataset.customized) return;
+      select.dataset.customized = "true";
+      
+      // Hide the native dropdown
+      select.style.display = 'none';
+      
+      // Create our custom animated wrapper
+      const wrapper = document.createElement('div');
+      wrapper.className = 'pf-custom-select';
+      
+      // Inherit the wide class if present
+      if (select.classList.contains('pf-select--wide')) {
+        wrapper.classList.add('pf-custom-select--wide');
+      }
+      
+      const trigger = document.createElement('div');
+      trigger.className = 'pf-custom-select-trigger';
+      
+      const label = document.createElement('span');
+      label.className = 'pf-custom-select-label';
+      
+      const icon = document.createElement('div');
+      icon.className = 'pf-custom-select-icon';
+      icon.innerHTML = `<svg xmlns='http://www.w3.org/2000/svg' width='14' height='8' viewBox='0 0 14 8'><path d='M1 1l6 6 6-6' fill='none' stroke='currentColor' stroke-width='1.5'/></svg>`;
+      
+      trigger.appendChild(label);
+      trigger.appendChild(icon);
+      wrapper.appendChild(trigger);
+      
+      const menu = document.createElement('div');
+      menu.className = 'pf-custom-select-menu';
+      wrapper.appendChild(menu);
+      
+      // Insert right after the native select
+      select.parentNode.insertBefore(wrapper, select.nextSibling);
+      
+      // Sync from native select to custom UI
+      function syncOptions() {
+        menu.innerHTML = '';
+        const selectedOpt = select.options[select.selectedIndex];
+        label.textContent = selectedOpt ? selectedOpt.text : 'Select...';
+        
+        Array.from(select.options).forEach((opt, index) => {
+          // Skip empty placeholder options if they have no text
+          if (!opt.text) return; 
+
+          const item = document.createElement('div');
+          item.className = 'pf-custom-select-item';
+          if (index === select.selectedIndex) item.classList.add('selected');
+          
+          item.textContent = opt.text;
+          item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            select.selectedIndex = index;
+            select.dispatchEvent(new Event('change')); // notify original app
+            closeMenu();
+          });
+          menu.appendChild(item);
+        });
+      }
+      
+      // Re-sync if the original script dynamically changes the <option>s
+      const observer = new MutationObserver(syncOptions);
+      observer.observe(select, { childList: true });
+      syncOptions();
+      
+      function toggleMenu(e) {
+        e.stopPropagation();
+        const isOpen = wrapper.classList.contains('open');
+        document.querySelectorAll('.pf-custom-select').forEach(el => el.classList.remove('open'));
+        if (!isOpen) wrapper.classList.add('open');
+      }
+      
+      function closeMenu() {
+        wrapper.classList.remove('open');
+      }
+      
+      trigger.addEventListener('click', toggleMenu);
+      document.addEventListener('click', closeMenu);
+      
+      select.addEventListener('change', syncOptions);
+    });
+  }
+
+  // Run immediately
+  upgradeSelects();
+
+  // Run whenever new templates are mounted into #content
+  const contentEl = document.getElementById('content');
+  if (contentEl) {
+    new MutationObserver(() => {
+      upgradeSelects();
+    }).observe(contentEl, { childList: true, subtree: true });
+  }
+});
+</script>
+<!-- Momentum Scrolling & Squarespace Scroll Reveals -->
+<script src="https://unpkg.com/lenis@1.1.13/dist/lenis.min.js"></script>
+<script>
+  // 1. Lenis Smooth Scrolling Engine (Buttery physical scroll)
+  const lenis = new Lenis({
+    duration: 1.2,
+    easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)), 
+    smooth: true
+  });
+  function raf(time) {
+    lenis.raf(time);
+    requestAnimationFrame(raf);
+  }
+  requestAnimationFrame(raf);
+
+  // 2. Scroll Reveal Trigger
+  const sqObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('sq-visible');
+        sqObserver.unobserve(entry.target); // Animates only once
+      }
+    });
+  }, { threshold: 0.1 });
+
+  // 3. Apply animations to charts, tables, and rows dynamically
+  new MutationObserver(() => {
+    const elementsToAnimate = document.querySelectorAll('.pf-table-wrap, .pf-table-title, .pf-data-row, [data-slot^="charts"] svg');
+    elementsToAnimate.forEach(el => {
+      if (!el.hasAttribute('data-sq-observed')) {
+        el.classList.add('sq-reveal');
+        el.setAttribute('data-sq-observed', 'true');
+        sqObserver.observe(el);
+      }
+    });
+  }).observe(document.body, { childList: true, subtree: true });
+</script>
+</body>
+</html>
